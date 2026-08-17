@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mock Interview</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+    button { padding: 12px 22px; font-size: 16px; cursor: pointer; border-radius: 8px; border: 1px solid #999; background: #fff; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    #status { color: #666; margin: 16px 0; min-height: 24px; }
+    .turn { margin: 14px 0; padding: 12px 14px; border-radius: 8px; }
+    .interviewer { background: #eef2fb; }
+    .candidate { background: #f2f2ef; }
+    .meta { font-size: 12px; color: #777; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Mock interview</h1>
+  <button id="start">Start interview</button>
+  <button id="answer" disabled>Hold to answer</button>
+  <p id="status"></p>
+  <div id="transcript"></div>
+
+<script>
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) document.getElementById("status").textContent = "Use Chrome or Edge — this browser lacks speech recognition.";
+
+let sessionId = null;
+let recognition = null;
+
+const $status = document.getElementById("status");
+const $transcript = document.getElementById("transcript");
+const $start = document.getElementById("start");
+const $answer = document.getElementById("answer");
+
+function render(role, text, meta) {
+  const div = document.createElement("div");
+  div.className = "turn " + role;
+  div.innerHTML = `<strong>${role === "interviewer" ? "Interviewer" : "You"}:</strong> ${text}`
+    + (meta ? `<div class="meta">${meta}</div>` : "");
+  $transcript.appendChild(div);
+  div.scrollIntoView({ behavior: "smooth", block: "end" });
+}
+
+function speak(text) {
+  return new Promise((resolve) => {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    u.onend = resolve;
+    u.onerror = resolve;
+    speechSynthesis.speak(u);
+  });
+}
+
+$start.onclick = async () => {
+  $start.disabled = true;
+  $status.textContent = "Starting…";
+  const res = await fetch("/api/session", { method: "POST" });
+  const data = await res.json();
+  sessionId = data.sessionId;
+  render("interviewer", data.opening);
+  await speak(data.opening);
+  $status.textContent = "Your turn — hold the button and answer.";
+  $answer.disabled = false;
+};
+
+function listen() {
+  return new Promise((resolve, reject) => {
+    recognition = new SR();
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.continuous = true;
+    let finalText = "";
+
+    recognition.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript + " ";
+      }
+    };
+    recognition.onerror = (e) => reject(new Error(e.error));
+    recognition.onend = () => resolve(finalText.trim());
+    recognition.start();
+  });
+}
+
+$answer.onpointerdown = async () => {
+  $status.textContent = "Listening…";
+  $answer.textContent = "Release when done";
+  try {
+    const promise = listen();
+    $answer.onpointerup = () => recognition && recognition.stop();
+    const text = await promise;
+    $answer.textContent = "Hold to answer";
+
+    if (!text) { $status.textContent = "Didn't catch that — try again."; return; }
+
+    render("candidate", text);
+    $status.textContent = "Thinking…";
+    $answer.disabled = true;
+
+    const res = await fetch("/api/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, text }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    render("interviewer", data.speech, `${data.latencyMs}ms · ${data.assessment}`);
+    await speak(data.speech);
+
+    $answer.disabled = false;
+    $status.textContent = "Your turn.";
+  } catch (err) {
+    $status.textContent = "Error: " + err.message;
+    $answer.disabled = false;
+    $answer.textContent = "Hold to answer";
+  }
+};
+</script>
+</body>
+</html>
