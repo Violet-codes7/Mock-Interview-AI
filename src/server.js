@@ -2,7 +2,11 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
-import { SYSTEM_PROMPT, buildMessages } from "./interviewer.js";
+import { connectDB } from "./db.js";
+import { Session } from "./models/Session.js";
+import { systemPrompt, buildMessages } from "./interviewer.js";
+import { nextPhase } from "./phases.js";
+import { fixTranscript } from "./transcriptFix.js";
 
 const app = express();
 app.use(cors());
@@ -11,31 +15,39 @@ app.use(express.static("public"));
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const sessions = new Map();
-
-app.post("/api/session", (req, res) => {
-  const id = crypto.randomUUID();
-  sessions.set(id, { history: [], turns: [], startedAt: Date.now() });
-  res.json({
-    sessionId: id,
-    opening: "Hi, thanks for joining. Let's start simple. Tell me about a project you've built recently.",
-  });
+app.post("/api/session", async (req, res) => {
+  try {
+    const session = await Session.create({
+      role: req.body?.role || "software engineering intern",
+    });
+    res.json({
+      sessionId: session._id,
+      phase: session.phase,
+      opening: "Hi, thanks for joining. Let's start simple. Tell me about a project you've built recently.",
+    });
+  } catch (err) {
+    console.error("Session create failed:", err);
+    res.status(500).json({ error: "Could not start session" });
+  }
 });
 
 app.post("/api/turn", async (req, res) => {
   const { sessionId, text } = req.body;
-  const session = sessions.get(sessionId);
-  if (!session) return res.status(404).json({ error: "Session not found" });
   if (!text?.trim()) return res.status(400).json({ error: "Empty answer" });
 
-  const started = Date.now();
-
   try {
+    const session = await Session.findById(sessionId);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (session.status !== "active") return res.status(400).json({ error: "Session ended" });
+
+    const cleanText = fixTranscript(text);
+    const started = Date.now();
+
     const response = await client.messages.create({
       model: "claude-sonnet-5",
       max_tokens: 300,
-      system: SYSTEM_PROMPT,
-      messages: buildMessages(session.history, text),
+      system: systemPrompt(session.phase, session.role),
+      messages: buildMessages(session.history, cleanText),
     });
 
     const raw = response.content
@@ -45,44 +57,81 @@ app.post("/api/turn", async (req, res) => {
       .replace(/```json|```/g, "")
       .trim();
 
+   console.log("RAW FROM CLAUDE:", raw);
+
     let parsed;
     try {
       parsed = JSON.parse(raw);
-    } catch {
-      parsed = { speech: raw, assessment: "partial", topic: "unknown" };
+    } catch (e) {
+      console.log("JSON parse failed:", e.message);
+      parsed = {};
     }
 
+    if (!parsed.speech || typeof parsed.speech !== "string") {
+      parsed.speech = raw || "Sorry, could you repeat that?";
+    }
+    if (!["strong", "partial", "weak"].includes(parsed.assessment)) {
+      parsed.assessment = "partial";
+    }
+    parsed.topic = parsed.topic || "unknown";
     const latencyMs = Date.now() - started;
 
-    session.history.push({ role: "user", content: text });
+    const turnsInPhase = session.turns.filter((t) => t.phase === session.phase).length + 1;
+    const advancedPhase = nextPhase(session.phase, turnsInPhase);
+
+    session.history.push({ role: "user", content: cleanText });
     session.history.push({ role: "assistant", content: raw });
     session.turns.push({
-      candidateText: text,
+      index: session.turns.length + 1,
+      phase: session.phase,
+      candidateText: cleanText,
+      interviewerText: parsed.speech,
       assessment: parsed.assessment,
       topic: parsed.topic,
       latencyMs,
     });
+    session.phase = advancedPhase;
+    await session.save();
 
-    console.log(`[turn ${session.turns.length}] ${latencyMs}ms | ${parsed.assessment} | ${parsed.topic}`);
+    console.log(`[${session.phase}] turn ${session.turns.length} | ${latencyMs}ms | ${parsed.assessment} | ${parsed.topic}`);
 
-    res.json({ speech: parsed.speech, assessment: parsed.assessment, latencyMs });
+    res.json({
+      speech: parsed.speech,
+      assessment: parsed.assessment,
+      phase: session.phase,
+      latencyMs,
+      transcribed: cleanText,
+    });
   } catch (err) {
     console.error("Turn failed:", err);
     res.status(500).json({ error: "Interview turn failed" });
   }
 });
 
-app.get("/api/session/:id", (req, res) => {
-  const session = sessions.get(req.params.id);
-  if (!session) return res.status(404).json({ error: "Not found" });
-  const lat = session.turns.map((t) => t.latencyMs).sort((a, b) => a - b);
-  res.json({
-    turns: session.turns,
-    p50: lat[Math.floor(lat.length / 2)] ?? null,
-    durationSec: Math.round((Date.now() - session.startedAt) / 1000),
-  });
+app.post("/api/session/:id/end", async (req, res) => {
+  try {
+    const session = await Session.findById(req.params.id);
+    if (!session) return res.status(404).json({ error: "Not found" });
+    session.status = "completed";
+    session.endedAt = new Date();
+    await session.save();
+    res.json({ stats: session.stats });
+  } catch (err) {
+    res.status(500).json({ error: "Could not end session" });
+  }
 });
 
-app.listen(process.env.PORT || 3000, () =>
-  console.log(`http://localhost:${process.env.PORT || 3000}`)
-);
+app.get("/api/session/:id", async (req, res) => {
+  try {
+    const session = await Session.findById(req.params.id);
+    if (!session) return res.status(404).json({ error: "Not found" });
+    res.json({ turns: session.turns, phase: session.phase, stats: session.stats });
+  } catch (err) {
+    res.status(500).json({ error: "Could not fetch session" });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+connectDB().then(() => {
+  app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
+});

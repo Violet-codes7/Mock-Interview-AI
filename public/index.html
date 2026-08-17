@@ -16,8 +16,10 @@
 </head>
 <body>
   <h1>Mock interview</h1>
+  <p id="phase" style="color:#555;font-size:14px"></p>
   <button id="start">Start interview</button>
   <button id="answer" disabled>Hold to answer</button>
+  <button id="end" disabled>End interview</button>
   <p id="status"></p>
   <div id="transcript"></div>
 
@@ -32,6 +34,8 @@ const $status = document.getElementById("status");
 const $transcript = document.getElementById("transcript");
 const $start = document.getElementById("start");
 const $answer = document.getElementById("answer");
+const $phase = document.getElementById("phase");
+const $end = document.getElementById("end");
 
 function render(role, text, meta) {
   const div = document.createElement("div");
@@ -53,18 +57,6 @@ function speak(text) {
   });
 }
 
-$start.onclick = async () => {
-  $start.disabled = true;
-  $status.textContent = "Starting…";
-  const res = await fetch("/api/session", { method: "POST" });
-  const data = await res.json();
-  sessionId = data.sessionId;
-  render("interviewer", data.opening);
-  await speak(data.opening);
-  $status.textContent = "Your turn — hold the button and answer.";
-  $answer.disabled = false;
-};
-
 function listen() {
   return new Promise((resolve, reject) => {
     recognition = new SR();
@@ -83,6 +75,27 @@ function listen() {
     recognition.start();
   });
 }
+
+$start.onclick = async () => {
+  $start.disabled = true;
+  $status.textContent = "Starting…";
+  try {
+    const res = await fetch("/api/session", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    sessionId = data.sessionId;
+    $phase.textContent = "Phase: " + data.phase;
+    render("interviewer", data.opening);
+    await speak(data.opening);
+    $status.textContent = "Your turn — hold the button and answer.";
+    $answer.disabled = false;
+    $end.disabled = false;
+  } catch (err) {
+    $status.textContent = "Could not start: " + err.message;
+    $start.disabled = false;
+  }
+};
 
 $answer.onpointerdown = async () => {
   $status.textContent = "Listening…";
@@ -108,6 +121,7 @@ $answer.onpointerdown = async () => {
     if (data.error) throw new Error(data.error);
 
     render("interviewer", data.speech, `${data.latencyMs}ms · ${data.assessment}`);
+    $phase.textContent = "Phase: " + data.phase;
     await speak(data.speech);
 
     $answer.disabled = false;
@@ -117,6 +131,15 @@ $answer.onpointerdown = async () => {
     $answer.disabled = false;
     $answer.textContent = "Hold to answer";
   }
+};
+
+$end.onclick = async () => {
+  const res = await fetch(`/api/session/${sessionId}/end`, { method: "POST" });
+  const { stats } = await res.json();
+  $status.textContent = `Done — ${stats.turnCount} turns, p50 ${stats.p50LatencyMs}ms, `
+    + `${stats.assessments.strong} strong / ${stats.assessments.partial} partial / ${stats.assessments.weak} weak`;
+  $answer.disabled = true;
+  $end.disabled = true;
 };
 </script>
 </body>
