@@ -1,19 +1,21 @@
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { connectDB } from "./db.js";
 import { Session } from "./models/Session.js";
 import { systemPrompt, buildMessages } from "./interviewer.js";
 import { nextPhase } from "./phases.js";
 import { fixTranscript } from "./transcriptFix.js";
+import { adjustDifficulty } from "./difficulty.js";
+import { coverageHint } from "./coverage.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.post("/api/session", async (req, res) => {
   try {
@@ -43,20 +45,29 @@ app.post("/api/turn", async (req, res) => {
     const cleanText = fixTranscript(text);
     const started = Date.now();
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 300,
-      system: systemPrompt(session.phase, session.role),
-      messages: buildMessages(session.history, cleanText),
+    const model = genAI.getGenerativeModel({
+      model: "gemini-3.6-flash",
+      systemInstruction: systemPrompt(
+        session.phase,
+        session.role,
+        session.difficulty,
+        coverageHint(session.turns, session.phase)
+      ),
     });
 
-    const raw = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("")
+    const geminiHistory = buildMessages(session.history, cleanText).map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+
+    const lastMessage = geminiHistory.pop();
+    const chat = model.startChat({ history: geminiHistory });
+    const result = await chat.sendMessage(lastMessage.parts[0].text);
+
+    const raw = result.response
+      .text()
       .replace(/```json|```/g, "")
       .trim();
-
    console.log("RAW FROM CLAUDE:", raw);
 
     let parsed;
@@ -81,10 +92,14 @@ app.post("/api/turn", async (req, res) => {
 
     session.history.push({ role: "user", content: cleanText });
     session.history.push({ role: "assistant", content: raw });
+    const askedAtDifficulty = session.difficulty;
+    session.consecutiveWeak = parsed.assessment === "weak" ? session.consecutiveWeak + 1 : 0;
+    session.difficulty = adjustDifficulty(session.difficulty, parsed.assessment, session.consecutiveWeak);
     session.turns.push({
       index: session.turns.length + 1,
       phase: session.phase,
       candidateText: cleanText,
+      difficulty: askedAtDifficulty,
       interviewerText: parsed.speech,
       assessment: parsed.assessment,
       topic: parsed.topic,
@@ -93,12 +108,13 @@ app.post("/api/turn", async (req, res) => {
     session.phase = advancedPhase;
     await session.save();
 
-    console.log(`[${session.phase}] turn ${session.turns.length} | ${latencyMs}ms | ${parsed.assessment} | ${parsed.topic}`);
+    console.log(`[${session.phase}] turn ${session.turns.length} | L${askedAtDifficulty}→L${session.difficulty} | ${latencyMs}ms | ${parsed.assessment} | ${parsed.topic}`);
 
     res.json({
       speech: parsed.speech,
       assessment: parsed.assessment,
       phase: session.phase,
+      difficulty: session.difficulty,
       latencyMs,
       transcribed: cleanText,
     });

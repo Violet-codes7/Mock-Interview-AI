@@ -85,7 +85,7 @@ $start.onclick = async () => {
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
 
     sessionId = data.sessionId;
-    $phase.textContent = "Phase: " + data.phase;
+    $phase.textContent = `Phase: ${data.phase} · Difficulty: 2/5`;
     render("interviewer", data.opening);
     await speak(data.opening);
     $status.textContent = "Your turn — hold the button and answer.";
@@ -96,50 +96,63 @@ $start.onclick = async () => {
     $start.disabled = false;
   }
 };
+let isListening = false;
 
-$answer.onpointerdown = async () => {
-  $status.textContent = "Listening…";
-  $answer.textContent = "Release when done";
-  try {
-    const promise = listen();
-    $answer.onpointerup = () => recognition && recognition.stop();
-    const text = await promise;
-    $answer.textContent = "Hold to answer";
+$answer.onclick = async () => {
+  if (!isListening) {
+    isListening = true;
+    $status.textContent = "Listening…";
+    $answer.textContent = "Stop and send";
+    try {
+      const promise = listen();
+      recognition._stopRequested = false;
+      const text = await promise;
+      isListening = false;
+      $answer.textContent = "Hold to answer";
 
-    if (!text) { $status.textContent = "Didn't catch that — try again."; return; }
+      if (!text) { $status.textContent = "Didn't catch that — try again."; return; }
 
-    render("candidate", text);
-    $status.textContent = "Thinking…";
-    $answer.disabled = true;
+      render("candidate", text);
+      $status.textContent = "Thinking…";
+      $answer.disabled = true;
 
-    const res = await fetch("/api/turn", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, text }),
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
+      const res = await fetch("/api/turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, text }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
 
-    render("interviewer", data.speech, `${data.latencyMs}ms · ${data.assessment}`);
-    $phase.textContent = "Phase: " + data.phase;
-    await speak(data.speech);
+      render("interviewer", data.speech, `${data.latencyMs}ms · ${data.assessment} · L${data.difficulty}`);
+      $phase.textContent = `Phase: ${data.phase} · Difficulty: ${data.difficulty}/5`;
+      await speak(data.speech);
 
-    $answer.disabled = false;
-    $status.textContent = "Your turn.";
-  } catch (err) {
-    $status.textContent = "Error: " + err.message;
-    $answer.disabled = false;
-    $answer.textContent = "Hold to answer";
+      $answer.disabled = false;
+      $status.textContent = "Your turn.";
+    } catch (err) {
+      isListening = false;
+      $status.textContent = "Error: " + err.message;
+      $answer.disabled = false;
+      $answer.textContent = "Hold to answer";
+    }
+  } else {
+    recognition && recognition.stop();
   }
 };
 
 $end.onclick = async () => {
-  const res = await fetch(`/api/session/${sessionId}/end`, { method: "POST" });
-  const { stats } = await res.json();
-  $status.textContent = `Done — ${stats.turnCount} turns, p50 ${stats.p50LatencyMs}ms, `
-    + `${stats.assessments.strong} strong / ${stats.assessments.partial} partial / ${stats.assessments.weak} weak`;
-  $answer.disabled = true;
-  $end.disabled = true;
+  try {
+    const res = await fetch(`/api/session/${sessionId}/end`, { method: "POST" });
+    const { stats } = await res.json();
+    $status.textContent = `Done — ${stats.turnCount} turns, peak difficulty ${stats.peakDifficulty}/5, `
+      + `avg ${stats.avgDifficulty}, p50 ${stats.p50LatencyMs}ms · `
+      + `${stats.assessments.strong} strong / ${stats.assessments.partial} partial / ${stats.assessments.weak} weak`;
+    $answer.disabled = true;
+    $end.disabled = true;
+  } catch (err) {
+    $status.textContent = "Could not end: " + err.message;
+  }
 };
 </script>
 </body>
