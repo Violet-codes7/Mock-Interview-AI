@@ -9,22 +9,25 @@ const turnSchema = new mongoose.Schema({
   difficulty: Number,
   topic: String,
   latencyMs: Number,
+  responseTimeMs: Number,
   createdAt: { type: Date, default: Date.now },
 }, { _id: false });
 
 const sessionSchema = new mongoose.Schema({
   role: { type: String, default: "software engineering intern" },
-  resumeSummary: {
-    skills: [String],
-    projects: [{ name: String, description: String, tech: [String] }],
-    experience: [String],
-  },
+  mode: { type: String, enum: ["resume", "fundamentals", "balanced"], default: "balanced" },
   phase: { type: String, default: "warmup" },
   difficulty: { type: Number, default: 2, min: 1, max: 5 },
   consecutiveWeak: { type: Number, default: 0 },
   status: { type: String, enum: ["active", "completed", "abandoned"], default: "active" },
   history: [{ role: String, content: String, _id: false }],
   turns: [turnSchema],
+  askedQuestionIds: { type: [String], default: [] },
+  resumeSummary: {
+    skills: [String],
+    projects: [{ name: String, description: String, tech: [String] }],
+    experience: [String],
+  },
   startedAt: { type: Date, default: Date.now },
   endedAt: Date,
 });
@@ -34,6 +37,7 @@ sessionSchema.virtual("stats").get(function () {
   const counts = { strong: 0, partial: 0, weak: 0 };
   this.turns.forEach((t) => counts[t.assessment] !== undefined && counts[t.assessment]++);
   const diffs = this.turns.map((t) => t.difficulty).filter(Boolean);
+  const responseTimes = this.turns.map((t) => t.responseTimeMs).filter(Boolean);
   return {
     turnCount: this.turns.length,
     p50LatencyMs: lat[Math.floor(lat.length / 2)] ?? null,
@@ -41,6 +45,9 @@ sessionSchema.virtual("stats").get(function () {
     assessments: counts,
     peakDifficulty: diffs.length ? Math.max(...diffs) : null,
     avgDifficulty: diffs.length ? +(diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(1) : null,
+    avgResponseTimeMs: responseTimes.length
+      ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+      : null,
   };
 });
 

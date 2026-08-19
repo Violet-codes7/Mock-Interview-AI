@@ -8,6 +8,7 @@ import { nextPhase } from "./phases.js";
 import { fixTranscript } from "./transcriptFix.js";
 import { adjustDifficulty } from "./difficulty.js";
 import { coverageHint } from "./coverage.js";
+import { pickQuestion } from "./questionbank.js";
 import multer from "multer";
 import { extractResumeText, structureResume } from "./resume.js";
 import { systemPrompt, buildMessages } from "./interviewer.js";
@@ -20,14 +21,25 @@ app.use(express.static("public"));
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+const BANK_PHASES_BY_MODE = {
+  resume: [],
+  fundamentals: ["project_depth", "fundamentals", "design"],
+  balanced: ["fundamentals", "design"],
+};
+
 app.post("/api/session", async (req, res) => {
   try {
+    const mode = ["resume", "fundamentals", "balanced"].includes(req.body?.mode)
+      ? req.body.mode
+      : "balanced";
     const session = await Session.create({
       role: req.body?.role || "software engineering intern",
+      mode,
     });
     res.json({
       sessionId: session._id,
       phase: session.phase,
+      mode: session.mode,
       opening: "Hi, thanks for joining. Let's start simple. Tell me about a project you've built recently.",
     });
   } catch (err) {
@@ -63,8 +75,9 @@ app.post("/api/session/:id/resume", upload.single("resume"), async (req, res) =>
     res.status(500).json({ error: "Could not process resume" });
   }
 });
+
 app.post("/api/turn", async (req, res) => {
-  const { sessionId, text } = req.body;
+  const { sessionId, text, responseTimeMs } = req.body;
   if (!text?.trim()) return res.status(400).json({ error: "Empty answer" });
 
   try {
@@ -75,6 +88,14 @@ app.post("/api/turn", async (req, res) => {
     const cleanText = fixTranscript(text);
     const started = Date.now();
 
+    const bankPhases = BANK_PHASES_BY_MODE[session.mode] || BANK_PHASES_BY_MODE.balanced;
+    let suggested = null;
+    if (bankPhases.includes(session.phase)) {
+      suggested = pickQuestion(session.phase, session.difficulty, session.askedQuestionIds);
+    }
+
+    const resumeForPrompt = session.mode === "fundamentals" ? null : session.resumeSummary;
+
     const model = genAI.getGenerativeModel({
       model: "gemini-3.6-flash",
       systemInstruction: systemPrompt(
@@ -82,7 +103,8 @@ app.post("/api/turn", async (req, res) => {
         session.role,
         session.difficulty,
         coverageHint(session.turns, session.phase),
-        session.resumeSummary
+        resumeForPrompt,
+        suggested?.question || null
       ),
     });
 
@@ -99,7 +121,6 @@ app.post("/api/turn", async (req, res) => {
       .text()
       .replace(/```json|```/g, "")
       .trim();
-   console.log("RAW FROM CLAUDE:", raw);
 
     let parsed;
     try {
@@ -126,6 +147,7 @@ app.post("/api/turn", async (req, res) => {
     const askedAtDifficulty = session.difficulty;
     session.consecutiveWeak = parsed.assessment === "weak" ? session.consecutiveWeak + 1 : 0;
     session.difficulty = adjustDifficulty(session.difficulty, parsed.assessment, session.consecutiveWeak);
+    if (suggested) session.askedQuestionIds.push(suggested.id);
     session.turns.push({
       index: session.turns.length + 1,
       phase: session.phase,
@@ -135,11 +157,12 @@ app.post("/api/turn", async (req, res) => {
       assessment: parsed.assessment,
       topic: parsed.topic,
       latencyMs,
+      responseTimeMs: typeof responseTimeMs === "number" ? responseTimeMs : null,
     });
     session.phase = advancedPhase;
     await session.save();
 
-    console.log(`[${session.phase}] turn ${session.turns.length} | L${askedAtDifficulty}→L${session.difficulty} | ${latencyMs}ms | ${parsed.assessment} | ${parsed.topic}`);
+    console.log(`[${session.mode}][${session.phase}] turn ${session.turns.length} | L${askedAtDifficulty}→L${session.difficulty} | bank:${suggested?.id || "none"} | ${latencyMs}ms | ${parsed.assessment} | ${parsed.topic}`);
 
     res.json({
       speech: parsed.speech,
@@ -179,10 +202,6 @@ app.get("/api/session/:id", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.use((err, req, res, next) => {
-  console.error("UNHANDLED ERROR:", err);
-  res.status(500).json({ error: err.message || "Unknown server error" });
-});
 connectDB().then(() => {
   app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
 });

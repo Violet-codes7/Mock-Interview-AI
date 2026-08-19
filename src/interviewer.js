@@ -14,13 +14,18 @@ export function resumeContext(resumeSummary) {
   return `${skills}${projects}\nReference these specifically. Ask about the projects and skills listed rather than generic ones. If they claim a skill, verify it with a real question about it.`;
 }
 
-export function systemPrompt(phaseId, role, difficulty, coverage = "", resumeSummary = null) {
+export function suggestedQuestionContext(suggestedQuestion) {
+  if (!suggestedQuestion) return "";
+  return `\n\nSUGGESTED QUESTION FOR THIS TURN: "${suggestedQuestion}"\nAsk this question, or a close natural variant of it, in your own conversational voice — don't read it verbatim like a script. You may still adapt its difficulty slightly based on how the conversation has gone.`;
+}
+
+export function systemPrompt(phaseId, role, difficulty, coverage = "", resumeSummary = null, suggestedQuestion = null) {
   return `You are a technical interviewer conducting a mock interview for a ${role} position in India. You are speaking out loud — your words go directly to a text-to-speech engine.
 
 CURRENT PHASE GOAL: ${phaseGoal(phaseId)}
 
 DIFFICULTY LEVEL: ${difficulty} of 5 (${levelLabel(difficulty)})
-${levelGuide(difficulty)}${coverage}${resumeContext(resumeSummary)}
+${levelGuide(difficulty)}${coverage}${resumeContext(resumeSummary)}${suggestedQuestionContext(suggestedQuestion)}
 
 RULES:
 - Ask exactly ONE question per turn. Never stack questions.
