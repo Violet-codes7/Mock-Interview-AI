@@ -140,7 +140,7 @@ app.post("/api/turn", async (req, res) => {
     const latencyMs = Date.now() - started;
 
     const turnsInPhase = session.turns.filter((t) => t.phase === session.phase).length + 1;
-    const advancedPhase = nextPhase(session.phase, turnsInPhase);
+ const advancedPhase = nextPhase(session.phase, turnsInPhase, session.mode);
 
     session.history.push({ role: "user", content: cleanText });
     session.history.push({ role: "assistant", content: raw });

@@ -26,11 +26,34 @@ export const PHASES = [
   },
 ];
 
-export function nextPhase(currentPhaseId, turnsInPhase) {
-  const idx = PHASES.findIndex((p) => p.id === currentPhaseId);
-  const current = PHASES[idx];
-  if (turnsInPhase >= current.minTurns && idx < PHASES.length - 1) {
-    return PHASES[idx + 1].id;
+// Different modes walk a different set of phases. Fundamentals mode skips
+// project_depth entirely — there's no resume to draw a project from — and
+// spends that time on more technical-question coverage instead.
+const SEQUENCES = {
+  balanced: ["warmup", "project_depth", "fundamentals", "design", "wrapup"],
+  resume: ["warmup", "project_depth", "fundamentals", "design", "wrapup"],
+  fundamentals: ["warmup", "fundamentals", "design", "wrapup"],
+};
+
+// Fundamentals mode spends longer in the technical phases since it has no
+// project_depth phase to fill that time instead.
+const MIN_TURNS_OVERRIDE = {
+  fundamentals: { fundamentals: 6, design: 3 },
+};
+
+function phaseConfig(phaseId, mode) {
+  const base = PHASES.find((p) => p.id === phaseId);
+  const override = MIN_TURNS_OVERRIDE[mode]?.[phaseId];
+  return override ? { ...base, minTurns: override } : base;
+}
+
+export function nextPhase(currentPhaseId, turnsInPhase, mode = "balanced") {
+  const sequence = SEQUENCES[mode] || SEQUENCES.balanced;
+  const idx = sequence.indexOf(currentPhaseId);
+  const current = phaseConfig(currentPhaseId, mode);
+  if (idx === -1) return currentPhaseId;
+  if (turnsInPhase >= current.minTurns && idx < sequence.length - 1) {
+    return sequence[idx + 1];
   }
   return currentPhaseId;
 }
