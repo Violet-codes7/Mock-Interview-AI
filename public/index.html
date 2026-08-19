@@ -17,7 +17,12 @@
 <body>
   <h1>Mock interview</h1>
   <p id="phase" style="color:#555;font-size:14px"></p>
-  <button id="start">Start interview</button>
+  <div id="resumeBox">
+  <input type="file" id="resumeFile" accept=".pdf" />
+  <button id="uploadResume">Upload resume</button>
+  <span id="resumeStatus" style="font-size:13px;color:#666;margin-left:8px"></span>
+</div>
+<button id="start">Start interview</button>
   <button id="answer" disabled>Hold to answer</button>
   <button id="end" disabled>End interview</button>
   <p id="status"></p>
@@ -36,6 +41,9 @@ const $start = document.getElementById("start");
 const $answer = document.getElementById("answer");
 const $phase = document.getElementById("phase");
 const $end = document.getElementById("end");
+const $resumeFile = document.getElementById("resumeFile");
+const $uploadResume = document.getElementById("uploadResume");
+const $resumeStatus = document.getElementById("resumeStatus");
 
 function render(role, text, meta) {
   const div = document.createElement("div");
@@ -75,19 +83,53 @@ function listen() {
     recognition.start();
   });
 }
+async function createSession() {
+  const res = await fetch("/api/session", { method: "POST" });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  sessionId = data.sessionId;
+  return data;
+}
+
+$uploadResume.onclick = async () => {
+  const file = $resumeFile.files[0];
+  if (!file) { $resumeStatus.textContent = "Choose a PDF first."; return; }
+
+  try {
+    if (!sessionId) await createSession();
+
+    $resumeStatus.textContent = "Reading resume…";
+    $uploadResume.disabled = true;
+
+    const formData = new FormData();
+    formData.append("resume", file);
+
+    const res = await fetch(`/api/session/${sessionId}/resume`, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    const projectNames = data.resumeSummary.projects.map((p) => p.name).join(", ") || "none found";
+    $resumeStatus.textContent = `Loaded — role: ${data.role}. Projects: ${projectNames}`;
+  } catch (err) {
+    $resumeStatus.textContent = "Could not read resume: " + err.message;
+  } finally {
+    $uploadResume.disabled = false;
+  }
+};
 
 $start.onclick = async () => {
   $start.disabled = true;
   $status.textContent = "Starting…";
   try {
-    const res = await fetch("/api/session", { method: "POST" });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    if (!sessionId) await createSession();
 
-    sessionId = data.sessionId;
-    $phase.textContent = `Phase: ${data.phase} · Difficulty: 2/5`;
-    render("interviewer", data.opening);
-    await speak(data.opening);
+    $phase.textContent = `Phase: warmup · Difficulty: 2/5`;
+    const opening = "Hi, thanks for joining. Let's start simple. Tell me about a project you've built recently.";
+    render("interviewer", opening);
+    await speak(opening);
     $status.textContent = "Your turn — hold the button and answer.";
     $answer.disabled = false;
     $end.disabled = false;

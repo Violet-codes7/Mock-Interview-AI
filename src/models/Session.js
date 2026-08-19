@@ -14,6 +14,11 @@ const turnSchema = new mongoose.Schema({
 
 const sessionSchema = new mongoose.Schema({
   role: { type: String, default: "software engineering intern" },
+  resumeSummary: {
+    skills: [String],
+    projects: [{ name: String, description: String, tech: [String] }],
+    experience: [String],
+  },
   phase: { type: String, default: "warmup" },
   difficulty: { type: Number, default: 2, min: 1, max: 5 },
   consecutiveWeak: { type: Number, default: 0 },

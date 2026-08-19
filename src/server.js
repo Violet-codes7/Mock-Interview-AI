@@ -1,16 +1,20 @@
+console.log("=== SERVER FILE VERSION CHECK: TEST123 ===");
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { connectDB } from "./db.js";
 import { Session } from "./models/Session.js";
-import { systemPrompt, buildMessages } from "./interviewer.js";
 import { nextPhase } from "./phases.js";
 import { fixTranscript } from "./transcriptFix.js";
 import { adjustDifficulty } from "./difficulty.js";
 import { coverageHint } from "./coverage.js";
+import multer from "multer";
+import { extractResumeText, structureResume } from "./resume.js";
+import { systemPrompt, buildMessages } from "./interviewer.js";
 
 const app = express();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
@@ -33,6 +37,34 @@ app.post("/api/session", async (req, res) => {
   }
 });
 
+app.post("/api/session/:id/resume", upload.single("resume"), async (req, res) => {
+  console.log("RESUME ROUTE HIT — file:", req.file ? req.file.originalname : "NO FILE");
+  try {
+    const session = await Session.findById(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    const text = await extractResumeText(req.file.buffer);
+    if (text.length < 50) {
+      return res.status(400).json({ error: "Could not read text from this PDF" });
+    }
+
+    const structured = await structureResume(text);
+
+    session.role = structured.role || session.role;
+    session.resumeSummary = {
+      skills: structured.skills || [],
+      projects: structured.projects || [],
+      experience: structured.experience || [],
+    };
+    await session.save();
+
+    res.json({ role: session.role, resumeSummary: session.resumeSummary });
+  } catch (err) {
+    console.error("Resume upload failed:", err);
+    res.status(500).json({ error: "Could not process resume" });
+  }
+});
 app.post("/api/turn", async (req, res) => {
   const { sessionId, text } = req.body;
   if (!text?.trim()) return res.status(400).json({ error: "Empty answer" });
@@ -51,7 +83,8 @@ app.post("/api/turn", async (req, res) => {
         session.phase,
         session.role,
         session.difficulty,
-        coverageHint(session.turns, session.phase)
+        coverageHint(session.turns, session.phase),
+        session.resumeSummary
       ),
     });
 
@@ -148,6 +181,10 @@ app.get("/api/session/:id", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+app.use((err, req, res, next) => {
+  console.error("UNHANDLED ERROR:", err);
+  res.status(500).json({ error: err.message || "Unknown server error" });
+});
 connectDB().then(() => {
   app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
 });

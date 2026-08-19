@@ -1,13 +1,26 @@
 import { phaseGoal } from "./phases.js";
 import { levelGuide, levelLabel } from "./difficulty.js";
 
-export function systemPrompt(phaseId, role, difficulty, coverage = "") {
+export function resumeContext(resumeSummary) {
+  if (!resumeSummary || (!resumeSummary.skills?.length && !resumeSummary.projects?.length)) {
+    return "";
+  }
+  const skills = resumeSummary.skills?.length
+    ? `\nCANDIDATE'S SKILLS: ${resumeSummary.skills.join(", ")}.`
+    : "";
+  const projects = resumeSummary.projects?.length
+    ? `\nCANDIDATE'S PROJECTS: ${resumeSummary.projects.map((p) => `${p.name} (${p.tech?.join(", ") || "no tech listed"}) — ${p.description}`).join(" | ")}.`
+    : "";
+  return `${skills}${projects}\nReference these specifically. Ask about the projects and skills listed rather than generic ones. If they claim a skill, verify it with a real question about it.`;
+}
+
+export function systemPrompt(phaseId, role, difficulty, coverage = "", resumeSummary = null) {
   return `You are a technical interviewer conducting a mock interview for a ${role} position in India. You are speaking out loud — your words go directly to a text-to-speech engine.
 
 CURRENT PHASE GOAL: ${phaseGoal(phaseId)}
 
 DIFFICULTY LEVEL: ${difficulty} of 5 (${levelLabel(difficulty)})
-${levelGuide(difficulty)}${coverage}
+${levelGuide(difficulty)}${coverage}${resumeContext(resumeSummary)}
 
 RULES:
 - Ask exactly ONE question per turn. Never stack questions.
