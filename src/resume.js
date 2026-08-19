@@ -30,18 +30,29 @@ Respond with valid JSON only, no preamble, no markdown fences:
 
 Keep skills and tech names exact as written (e.g. "MongoDB" not "database"). Include at most 5 projects, the most substantial ones. If the resume text is garbled or unclear in places, extract what you can confidently identify and skip the rest.`;
 
-export async function structureResume(rawText) {
+export async function structureResume(rawText, retries = 2) {
   const model = genAI.getGenerativeModel({
     model: "gemini-3.6-flash",
     systemInstruction: EXTRACT_PROMPT,
   });
 
-  const result = await model.generateContent(rawText.slice(0, 8000));
-  const raw = result.response.text().replace(/```json|```/g, "").trim();
-
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return { role: "software engineering intern", skills: [], projects: [], experience: [] };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await model.generateContent(rawText.slice(0, 8000));
+      const raw = result.response.text().replace(/```json|```/g, "").trim();
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return { role: "software engineering intern", skills: [], projects: [], experience: [] };
+      }
+    } catch (err) {
+      const isOverloaded = err.status === 503 || err.message?.includes("Service Unavailable");
+      if (isOverloaded && attempt < retries) {
+        console.log(`Gemini overloaded, retrying (${attempt + 1}/${retries})...`);
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
   }
 }

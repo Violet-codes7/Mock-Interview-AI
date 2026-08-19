@@ -1,4 +1,3 @@
-console.log("=== SERVER FILE VERSION CHECK: TEST123 ===");
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
@@ -38,7 +37,6 @@ app.post("/api/session", async (req, res) => {
 });
 
 app.post("/api/session/:id/resume", upload.single("resume"), async (req, res) => {
-  console.log("RESUME ROUTE HIT — file:", req.file ? req.file.originalname : "NO FILE");
   try {
     const session = await Session.findById(req.params.id);
     if (!session) return res.status(404).json({ error: "Session not found" });

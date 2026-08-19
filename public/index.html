@@ -23,7 +23,7 @@
   <span id="resumeStatus" style="font-size:13px;color:#666;margin-left:8px"></span>
 </div>
 <button id="start">Start interview</button>
-  <button id="answer" disabled>Hold to answer</button>
+  <button id="answer" disabled>Start answering</button>
   <button id="end" disabled>End interview</button>
   <p id="status"></p>
   <div id="transcript"></div>
@@ -147,10 +147,9 @@ $answer.onclick = async () => {
     $answer.textContent = "Stop and send";
     try {
       const promise = listen();
-      recognition._stopRequested = false;
       const text = await promise;
       isListening = false;
-      $answer.textContent = "Hold to answer";
+      $answer.textContent = "Start answering";
 
       if (!text) { $status.textContent = "Didn't catch that — try again."; return; }
 
@@ -176,13 +175,12 @@ $answer.onclick = async () => {
       isListening = false;
       $status.textContent = "Error: " + err.message;
       $answer.disabled = false;
-      $answer.textContent = "Hold to answer";
+      $answer.textContent = "Start answering";
     }
   } else {
     recognition && recognition.stop();
   }
 };
-
 $end.onclick = async () => {
   try {
     const res = await fetch(`/api/session/${sessionId}/end`, { method: "POST" });
