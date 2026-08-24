@@ -11,7 +11,7 @@ import { coverageHint } from "./coverage.js";
 import { pickQuestion } from "./questionbank.js";
 import multer from "multer";
 import { extractResumeText, structureResume } from "./resume.js";
-import { systemPrompt, buildMessages } from "./interviewer.js";
+import { systemPrompt, buildMessages, bankFallbackContext } from "./interviewer.js";
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -88,10 +88,15 @@ app.post("/api/turn", async (req, res) => {
     const cleanText = fixTranscript(text);
     const started = Date.now();
 
-    const bankPhases = BANK_PHASES_BY_MODE[session.mode] || BANK_PHASES_BY_MODE.balanced;
+        const bankPhases = BANK_PHASES_BY_MODE[session.mode] || BANK_PHASES_BY_MODE.balanced;
     let suggested = null;
+    let fallbackNote = "";
     if (bankPhases.includes(session.phase)) {
       suggested = pickQuestion(session.phase, session.difficulty, session.askedQuestionIds);
+      if (!suggested) {
+        const coveredTopics = [...new Set(session.turns.map((t) => t.topic).filter((t) => t && t !== "unknown"))];
+        fallbackNote = bankFallbackContext(session.phase, coveredTopics);
+      }
     }
 
     const resumeForPrompt = session.mode === "fundamentals" ? null : session.resumeSummary;
@@ -102,7 +107,7 @@ app.post("/api/turn", async (req, res) => {
         session.phase,
         session.role,
         session.difficulty,
-        coverageHint(session.turns, session.phase),
+        coverageHint(session.turns, session.phase) + fallbackNote,
         resumeForPrompt,
         suggested?.question || null
       ),
