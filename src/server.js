@@ -8,7 +8,7 @@ import { nextPhase } from "./phases.js";
 import { fixTranscript } from "./transcriptFix.js";
 import { adjustDifficulty } from "./difficulty.js";
 import { coverageHint } from "./coverage.js";
-import { pickQuestion } from "./questionbank.js";
+import { pickQuestion } from "./questionBank.js";
 import multer from "multer";
 import { extractResumeText, structureResume } from "./resume.js";
 import { systemPrompt, buildMessages, bankFallbackContext } from "./interviewer.js";
