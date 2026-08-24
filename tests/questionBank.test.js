@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { QUESTION_BANK, pickQuestion } from "../src/questionBank.test.js";
+import { QUESTION_BANK, pickQuestion } from "../src/questionBank.js";
 
 describe("QUESTION_BANK", () => {
   it("has no duplicate ids", () => {
