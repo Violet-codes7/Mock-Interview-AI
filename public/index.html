@@ -6,6 +6,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  .sticky-controls {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #0d1117;
+  padding: 16px 0 8px;
+  margin: 0 -24px;
+  padding-left: 24px;
+  padding-right: 24px;
+  border-bottom: 1px solid #232b3d;
+}
   * { box-sizing: border-box; }
   .mode-btn { font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 8px 14px; border-radius: 8px; border: 1px solid #2a3350; background: transparent; color: #9aa3b8; box-shadow: none; }
 .mode-btn:hover:not(:disabled) { background: #1a2235; transform: none; }
@@ -109,6 +120,7 @@
 </div>
 <p id="resumeStatus"></p>
 
+<div class="sticky-controls">
   <div class="controls">
     <button id="start">Start interview</button>
     <button id="answer" disabled>Start answering</button>
@@ -124,6 +136,7 @@
     </div>
   </div>
   <p id="status"></p>
+</div>
 
   <div class="summary" id="summaryCard"></div>
 
