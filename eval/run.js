@@ -1,8 +1,7 @@
 import "dotenv/config";
-import { GoogleGenerativeAI } from "../node_modules/@google/generative-ai/dist/index.mjs";
 import { systemPrompt } from "../src/interviewer.js";
 import { EVAL_CASES } from "./dataset.js";
-
+import { GoogleGenerativeAI } from "@google/generative-ai";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 async function assessOne(question, answer) {
