@@ -4,17 +4,17 @@
   "type": "module",
   "main": "src/server.js",
   "scripts": {
-  "dev": "nodemon src/server.js",
-  "start": "node src/server.js",
-  "test": "vitest run",
-  "eval": "node eval/run.js"
-},
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "vitest run",
+    "eval": "node eval/run.js"
+  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "mongodb": "^7.5.0",
+    "mongodb": "^7.6.0",
     "mongoose": "^9.9.2",
     "multer": "^2.2.0",
     "pdf-parse": "^2.4.5"
