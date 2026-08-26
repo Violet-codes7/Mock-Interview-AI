@@ -116,6 +116,7 @@ Runs the LLM assessment eval harness against 17 hand-labeled cases and reports a
 - [x] Automated tests + CI pipeline
 - [x] Eval harness measuring AI assessment reliability
 - [x] Public deployment
+- [x] Sticky controls for uninterrupted long-session scrolling
 - [ ] Streaming speech-to-text and text-to-speech for lower latency
 - [ ] Barge-in support (interrupt the interviewer mid-question)
 - [ ] Login and session history
